@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import pkg from "agora-access-token";
+
 const { RtcTokenBuilder, RtcRole } = pkg;
 
 dotenv.config();
@@ -12,22 +13,21 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-// ========== SIMPLE IN-MEMORY CALL STATE ==========
+/* ================= IN-MEMORY CALL STATE ================= */
 
 let callState = {
-  active: false,
-  from: null,
-  to: null,
-  status: "idle" // idle | ringing | connected
+  status: "idle",      // idle | calling | connected
+  caller: null,
+  timestamp: null
 };
 
-// ========== HEALTH CHECK ==========
+/* ================= HEALTH CHECK ================= */
 
 app.get("/", (req, res) => {
   res.send("Azizam backend is running ❤️");
 });
 
-// ========== AGORA TOKEN ENDPOINT ==========
+/* ================= AGORA TOKEN ================= */
 
 app.get("/rtc/:channel/:uid", (req, res) => {
   const channelName = req.params.channel;
@@ -57,51 +57,82 @@ app.get("/rtc/:channel/:uid", (req, res) => {
   res.json({ token });
 });
 
-// ========== CALL SYSTEM ENDPOINTS ==========
+/* ================= PHASE 3 ENDPOINTS ================= */
 
-// Start a call
+/**
+ * Start a call
+ * Body: { role: "Mo" | "Azi" }
+ */
 app.post("/call/start", (req, res) => {
-  const { from, to } = req.body;
+  const { role } = req.body;
+
+  if (!role) {
+    return res.status(400).json({ error: "role required" });
+  }
+
+  // If a call is already active, block new call
+  if (callState.status !== "idle") {
+    return res.json({
+      success: false,
+      message: "Call already in progress"
+    });
+  }
 
   callState = {
-    active: true,
-    from,
-    to,
-    status: "ringing"
+    status: "calling",
+    caller: role,
+    timestamp: Date.now()
   };
 
-  res.json({ message: "Call started", state: callState });
+  res.json({
+    success: true,
+    state: callState
+  });
 });
 
-// Get current call status
+/**
+ * Get current call status
+ */
 app.get("/call/status", (req, res) => {
   res.json(callState);
 });
 
-// Accept call
+/**
+ * Accept the call
+ */
 app.post("/call/accept", (req, res) => {
-  if (!callState.active) {
-    return res.status(400).json({ error: "No active call" });
+  if (callState.status !== "calling") {
+    return res.json({
+      success: false,
+      message: "No incoming call to accept"
+    });
   }
 
   callState.status = "connected";
 
-  res.json({ message: "Call accepted", state: callState });
+  res.json({
+    success: true,
+    state: callState
+  });
 });
 
-// Cancel or end call
+/**
+ * Cancel or end call
+ */
 app.post("/call/cancel", (req, res) => {
   callState = {
-    active: false,
-    from: null,
-    to: null,
-    status: "idle"
+    status: "idle",
+    caller: null,
+    timestamp: null
   };
 
-  res.json({ message: "Call canceled", state: callState });
+  res.json({
+    success: true,
+    state: callState
+  });
 });
 
-// ========== START SERVER ==========
+/* ================= START SERVER ================= */
 
 app.listen(PORT, () => {
   console.log(`🚀 Azizam backend running on port ${PORT}`);
