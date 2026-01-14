@@ -21,6 +21,24 @@ let callState = {
   timestamp: null
 };
 
+/* ================= HELPERS ================= */
+
+// Expire ringing after 30 seconds automatically
+function checkForTimeout() {
+  if (
+    callState.status === "calling" &&
+    callState.timestamp &&
+    Date.now() - callState.timestamp > 30000
+  ) {
+    console.log("⏱ Call expired due to timeout");
+    callState = {
+      status: "idle",
+      caller: null,
+      timestamp: null
+    };
+  }
+}
+
 /* ================= HEALTH CHECK ================= */
 
 app.get("/", (req, res) => {
@@ -64,17 +82,20 @@ app.get("/rtc/:channel/:uid", (req, res) => {
  * Body: { role: "Mo" | "Azi" }
  */
 app.post("/call/start", (req, res) => {
+  checkForTimeout();
+
   const { role } = req.body;
 
   if (!role) {
     return res.status(400).json({ error: "role required" });
   }
 
-  // If a call is already active, block new call
+  // If a call is already active
   if (callState.status !== "idle") {
     return res.json({
       success: false,
-      message: "Call already in progress"
+      message: "Call already in progress",
+      state: callState
     });
   }
 
@@ -83,6 +104,8 @@ app.post("/call/start", (req, res) => {
     caller: role,
     timestamp: Date.now()
   };
+
+  console.log(`📞 Call started by ${role}`);
 
   res.json({
     success: true,
@@ -94,13 +117,19 @@ app.post("/call/start", (req, res) => {
  * Get current call status
  */
 app.get("/call/status", (req, res) => {
+  checkForTimeout();
   res.json(callState);
 });
 
 /**
  * Accept the call
+ * Body: { role: "Mo" | "Azi" }
  */
 app.post("/call/accept", (req, res) => {
+  checkForTimeout();
+
+  const { role } = req.body;
+
   if (callState.status !== "calling") {
     return res.json({
       success: false,
@@ -108,7 +137,21 @@ app.post("/call/accept", (req, res) => {
     });
   }
 
+  if (!role) {
+    return res.status(400).json({ error: "role required" });
+  }
+
+  // Prevent same person accepting their own call
+  if (role === callState.caller) {
+    return res.json({
+      success: false,
+      message: "Caller cannot accept their own call"
+    });
+  }
+
   callState.status = "connected";
+
+  console.log(`✅ Call accepted by ${role}`);
 
   res.json({
     success: true,
@@ -120,6 +163,8 @@ app.post("/call/accept", (req, res) => {
  * Cancel or end call
  */
 app.post("/call/cancel", (req, res) => {
+  console.log("❌ Call cancelled");
+
   callState = {
     status: "idle",
     caller: null,
